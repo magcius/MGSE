@@ -1,3 +1,6 @@
+
+const Signals = imports.signals;
+
 const MessageTray = imports.ui.messageTray;
 const WindowManager = imports.ui.windowManager;
 const St = imports.gi.St;
@@ -135,25 +138,10 @@ BottomPanel.prototype = {
         let h = this.actor.get_theme_node().get_height();
         this.actor.set_position(primary.x, primary.y+primary.height-h);
         this.actor.set_size(primary.width, -1);
-    },
-    
-    moveMe: function(item) {
-        item.actor.get_parent().remove_actor(item.actor);
-        
-        if (item==Main.panel._mintMenu) {
-            this.leftBox.insert_actor(item.actor, 0);
-        }
-        else if (item==Main.panel._mintWindowList) {
-            let _children = this.leftBox.get_children(); 
-            this.leftBox.insert_actor(item.actor, _children.length);
-        }
-        else {
-            this.leftBox.add(item.actor);
-        }
-        
-        if (item==Main.panel._mintMenu || item==Main.panel._mintWindowList) item.setBottomPosition(true);
     }
 };
+
+Signals.addSignalMethods(BottomPanel.prototype);
 
 let origShowTray;
 let myShowTray;
@@ -228,23 +216,15 @@ function enable() {
 
     bottomPanel = new BottomPanel();
     bottomPanel.relayout();
-    
+
     /* Look for the menu */
-    if (Main.panel._mintMenu != null) {
-        bottomPanel.moveMe(Main.panel._mintMenu);
-        global.log("mintPanel found mintmenu");
+    if (Main.panel._mintMenuExtension !== null) {
+        Main.panel._mintMenuExtension.moveToBottom();
     }
-    
+
     /* Look for the show desktop button */
-    if (Main.panel._mintShowDesktopButton != null) {
-        bottomPanel.moveMe(Main.panel._mintShowDesktopButton);
-        global.log("mintPanel found mintShowDesktopButton");
-    }
-    
-    /* Look for the window list */
-    if (Main.panel._mintWindowList != null) {
-        bottomPanel.moveMe(Main.panel._mintWindowList);
-        global.log("mintPanel found mintWindowList");
+    if (Main.panel._mintWindowListExtension !== null) {
+        Main.panel._mintWindowListExtension.moveToBottom();
     }
     
     /* Tell the main panel we're here */
@@ -259,6 +239,7 @@ function disable() {
         origShowWorkspaceSwitcher;
 
     Main.wm._reset();
+    bottomPanel.emit('disappearing');
 
     if ( bottomPanel ) {
         Main.layoutManager.removeChrome(bottomPanel.actor);

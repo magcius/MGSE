@@ -713,11 +713,6 @@ WindowList.prototype = {
 			childBox.x2 = allocWidth;
 		}
 		this._rightBox.allocate(childBox, flags);
-    },
-     
-    setBottomPosition: function(value){
-        bottomPosition = value;
-        this._refreshItems();
     }
 };
 
@@ -779,70 +774,77 @@ ShowDesktopButton.prototype = {
     }
 };
 
-let windowList;
-let button;
-let bottomPosition;
-let appMenu;
+const MenuPosition = {
+    INITIALIZING: 0,
+    TOP: 1,
+    BOTTOM: 2
+};
+
+function WindowListExtension() {
+    this._init();
+}
+
+WindowListExtension.prototype = {
+    _init: function() {
+        this.windowList = new WindowList();
+        this.button = new ShowDesktopButton();
+        this.currentPosition = MenuPosition.INITIALIZING;
+        this._disappearingId = 0;
+    },
+
+    enable: function() {
+        Main.panel._mintWindowListExtension = this;
+
+        /* Look for mintPanel */
+        if (Main.panel._mintPanel !== null) {
+            this.moveToBottom();
+        } else {
+            this.moveToTop();
+        }
+    },
+
+    disable: function() {
+        this._undoEverything();
+        Main.panel._mintWindowListExtension = null;
+    },
+
+    _undoEverything: function() {
+        if (this.currentPosition === MenuPosition.TOP) {
+            Main.panel._leftBox.remove_actor(this.button.actor);
+            Main.panel._leftBox.remove_actor(this.windowList.actor);
+            Main.panel._leftBox.add_actor(Main.panel._appMenu.actor);
+        } else if (this.currentPosition === MenuPosition.BOTTOM) {
+            Main.panel._mintPanel.leftBox.remove_actor(this.button.actor); 
+            Main.panel._mintPanel.leftBox.remove_actor(this.windowList.actor);
+            Main.panel._mintPanel.disconnect(this._disappearingId);
+        }
+    },
+
+    moveToTop: function() {
+        this._undoEverything();
+        this.currentPosition = MenuPosition.TOP;
+        Main.panel._leftBox.remove_actor(Main.panel._appMenu.actor);
+        Main.panel._leftBox.add(this.button.actor,
+                                { x_fill: true,
+                                  y_fill: true });
+        Main.panel._leftBox.add(this.windowList.actor,
+                                { x_fill: true,
+                                  y_fill: true });
+    },
+
+    moveToBottom: function() {
+        this._undoEverything();
+        this.currentPosition = MenuPosition.BOTTOM;
+        Main.panel._mintPanel.leftBox.add(this.button.actor,
+                                          { x_fill: true,
+                                            y_fill: true });
+        Main.panel._mintPanel.leftBox.add_actor(this.windowList.actor);
+        this._disappearingId = Main.panel._mintPanel.connect('disappearing',
+                                                             Lang.bind(this, this.moveToTop));
+    }
+};
 
 function init(extensionMeta) {
-    // Find out if the bottom panel extension is enabled    
-    let settings = new Gio.Settings({ schema: 'org.gnome.shell' });
-    let enabled_extensions = settings.get_strv('enabled-extensions');
-    if (enabled_extensions.indexOf("bottompanel@linuxmint.com") != -1) {
-        bottomPosition = true;
-    }
-    else {
-        bottomPosition = false;
-    }    
-    imports.gettext.bindtextdomain('gnome-shell-extensions', extensionMeta.localedir);        
-    windowList = new WindowList();
-    button = new ShowDesktopButton();
-    appMenu = Main.panel._appMenu;   
-}
-
-function enable() {	
-                
-    // Create a show desktop button   
-    Main.panel._leftBox.add(button.actor, { x_fill: true, y_fill: true });
-    
-    /* Create a Window List */ 
-    Main.panel._leftBox.add(windowList.actor, { x_fill: true, y_fill: true });
-    
-    /* Tell the main panel we're here */
-    Main.panel._mintWindowList = windowList;
-    Main.panel._mintShowDesktopButton = button;
-    
-    /* Look for mintPanel */
-    if (Main.panel._mintPanel != null) {
-        global.log("mintWindowList found mintPanel");
-        Main.panel._mintPanel.moveMe(button);
-        Main.panel._mintPanel.moveMe(windowList);
-    }
-    
-    if (!bottomPosition) {                        
-        /* Remove Application Menu */  
-        Main.panel._leftBox.remove_actor(appMenu.actor);          
-    }
-}
-
-function disable() {            
-    // Remove the show desktop button   
-    Main.panel._leftBox.remove_actor(button.actor);
-    
-    // Remove the window list
-    Main.panel._leftBox.remove_actor(windowList.actor);
-    
-    if (!bottomPosition) {
-        // Place back the Application Menu
-        Main.panel._leftBox.insert_actor(appMenu.actor, 1);
-    }
-    if (Main.panel._mintPanel != null) {
-        try {
-            Main.panel._mintPanel.leftBox.remove_actor(button.actor); 
-            Main.panel._mintPanel.leftBox.remove_actor(windowList.actor);                  
-        }
-        catch(err) {
-            // Best effort, user could have disabled/enabled the bottom panel, so we don't really know where to remove ourselves from.
-        }
-    }
+    imports.gettext.bindtextdomain('gnome-shell-extensions', extensionMeta.localedir);
+    return new WindowListExtension();
 }

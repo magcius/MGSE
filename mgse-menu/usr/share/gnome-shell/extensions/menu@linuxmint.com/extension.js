@@ -184,19 +184,27 @@ MintButton.prototype = {
 
         this.actor.connect('button-press-event', Lang.bind(this, this._onButtonPress));
         this.actor.connect('key-press-event', Lang.bind(this, this._onSourceKeyPress));
-        
+
         this._menuAlignment = menuAlignment;
+        this.menu = null;
         this._resetMenu();
     },
+
+    removeMenu: function() {
+        if (this.menu !== null) {
+            Main.uiGroup.remove_actor(this.menu.actor);
+            Main.panel._menus.removeMenu(this.menu);
+        }
+    },
     
-    _resetMenu: function(){
+    _resetMenu: function() {
+        this.removeMenu();
         this.menu = new PopupMenu.PopupMenu(this.actor, this._menuAlignment, mintMenuOrientation);
         this.menu.actor.add_style_class_name('application-menu-background');
         this.menu.connect('open-state-changed', Lang.bind(this, this._onOpenStateChanged));
-        //this.menu.actor.connect('key-press-event', Lang.bind(this, this._onMenuKeyPress));
         Main.uiGroup.add_actor(this.menu.actor);
         this.menu.actor.hide();
-        
+
         Main.panel._menus.addMenu(this.menu);
     },
 
@@ -675,21 +683,6 @@ this._clearApplicationsBox(button.actor);
          this._displayButtons(null, bookmarks.concat(devices));
 },
      
-     setBottomPosition: function(value){
-         // Need to find a way to do this
-         if (value){
-             //this.menu._arrowSide = St.Side.BOTTOM;
-             //mintMenuOrientation = St.Side.BOTTOM;
-             //this.disable();
-             //this.enable();
-         }else{
-             //this.menu._arrowSide = St.Side.TOP;
-             //mintMenuOrientation = St.Side.TOP;
-             //this.disable();
-             //this.enable();
-         }
-     },
-     
      resetSearch: function(){
         this.searchEntry.set_text("");
         this.searchActive = false;
@@ -804,72 +797,81 @@ this._clearApplicationsBox(button.actor);
     }
 };
 
-let appsMenuButton;
-let mintMenuOrientation;
-let icon_path;
-let activitiesButton;
-let activitiesButtonLabel;
-let bottomPosition;
+const MenuPosition = {
+    INITIALIZING: 0,
+    TOP: 1,
+    BOTTOM: 2
+};
 
-function enable() {
-    
-    // Find out if the bottom panel extension is enabled
-    let settings = new Gio.Settings({ schema: 'org.gnome.shell' });
-    let enabled_extensions = settings.get_strv('enabled-extensions');
-    if (enabled_extensions.indexOf("bottompanel@linuxmint.com") != -1) {
-        mintMenuOrientation = St.Side.BOTTOM;
-        bottomPosition = true;
-    }
-    else {
-        mintMenuOrientation = St.Side.TOP;
-        bottomPosition = false;
-    }
-        
-    appsMenuButton = new ApplicationsButton();
-    Main.panel._leftBox.insert_actor(appsMenuButton.actor, 0);
-    
-    /* Tell the main panel we're here */
-    Main.panel._mintMenu = appsMenuButton;
-    
-    /* Look for mintPanel */
-    if (Main.panel._mintPanel != null) {
-        Main.panel._mintPanel.moveMe(appsMenuButton);
-        global.log("mintMenu found mintPanel");
-    }
-    
-    if (!bottomPosition) {
-        // Move Activities button to the right and change its label
+function MenuExtension() {
+    this._init();
+}
+
+MenuExtension.prototype = {
+    _init: function() {
+        this.appsMenuButton = new ApplicationsButton();
+        this.currentPosition = MenuPosition.INITIALIZING;
+        this._activitiesButtonLabel = Main.panel._activitiesButton._label.get_text();
+        this._disappearingId = 0;
+    },
+
+    enable: function() {
+        Main.panel._mintMenuExtension = this;
+
+        /* Look for mintPanel */
+        if (Main.panel._mintPanel !== null) {
+            this.moveToBottom();
+        } else {
+            this.moveToTop();
+        }
+    },
+
+    disable: function() {
+        this._undoEverything();
+        Main.panel._mintMenuExtension = null;
+    },
+
+    _undoEverything: function() {
+        if (this.currentPosition === MenuPosition.TOP) {
+            let activitiesButton = Main.panel._activitiesButton;
+            Main.panel._rightBox.remove_actor(activitiesButton.actor);
+            Main.panel._leftBox.insert_actor(activitiesButton.actor, 0);
+            activitiesButton._label.set_text(this._activitiesButtonLabel);
+
+            this.appsMenuButton.removeMenu();
+            Main.panel._leftBox.remove_actor(this.appsMenuButton.actor);
+        } else if (this.currentPosition === MenuPosition.BOTTOM) {
+            this.appsMenuButton.removeMenu();
+            Main.panel._mintPanel.leftBox.remove_actor(this.appsMenuButton.actor);
+            Main.panel._mintPanel.disconnect(this._disappearingId);
+        }
+    },
+
+    moveToTop: function() {
+        this._undoEverything();
+        this.currentPosition = MenuPosition.TOP;
+
+        let activitiesButton = Main.panel._activitiesButton;
         Main.panel._leftBox.remove_actor(activitiesButton.actor);
-        Main.panel._rightBox.insert_actor(activitiesButton.actor, Main.panel._rightBox.get_children().length);
+        Main.panel._rightBox.insert_actor(activitiesButton.actor,
+                                          Main.panel._rightBox.get_children().length);
         activitiesButton._label.set_text("-");
-    }
-}
 
-function disable() {
-    Main.panel._leftBox.remove_actor(appsMenuButton.actor);
-    Main.panel._menus.removeMenu(appsMenuButton.menu);
-    
-    if (!bottomPosition) {
-        // Place back the Activities button
-        Main.panel._rightBox.remove_actor(activitiesButton.actor);
-        Main.panel._leftBox.insert_actor(activitiesButton.actor, 0);
-        activitiesButton._label.set_text(activitiesButtonLabel);
-    }
-    if (Main.panel._mintPanel != null) {
-        try {
-            Main.panel._mintPanel.leftBox.remove_actor(appsMenuButton.actor);
-        }
-        catch(err) {
-            // Best effort, user could have disabled/enabled the bottom panel, so we don't really know where to remove ourselves from.
-        }
-    }
-}
+        Main.panel._leftBox.insert_actor(this.appsMenuButton.actor, 0);
+    },
+
+    moveToBottom: function() {
+        this._undoEverything();
+        this.currentPosition = MenuPosition.BOTTOM;
+        Main.panel._mintPanel.leftBox.insert_actor(this.appsMenuButton.actor, 0);
+        this._disappearingId = Main.panel._mintPanel.connect('disappearing',
+                                                             Lang.bind(this, this.moveToTop));
+    },
+};
+
+let icon_path;
 
 function init(metadata) {
-    
     icon_path = metadata.path + '/icons/';
-            
-    activitiesButton = Main.panel._activitiesButton;
-    activitiesButtonLabel = Main.panel._activitiesButton._label.get_text();
+    return new MenuExtension();
 }
-
